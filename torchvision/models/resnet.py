@@ -21,7 +21,7 @@ model_urls = {
 }
 
 
-def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
+def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1): # in_planes = 128, out_planes =128, stride=1, groups=32, dilation=1
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=dilation, groups=groups, bias=False, dilation=dilation)
@@ -81,8 +81,8 @@ class Bottleneck(nn.Module):
 
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
-                 base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,  #block(64, 64, 1, downsample, 32,
+                 base_width=64, dilation=1, norm_layer=None):                  #       4, 1, nn.BatchNorm2d)
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -90,7 +90,7 @@ class Bottleneck(nn.Module):
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
         self.bn1 = norm_layer(width)
-        self.conv2 = conv3x3(width, width, stride, groups, dilation)
+        self.conv2 = conv3x3(width, width, stride, groups, dilation) # stride=1, groups=32, dilation=1
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
@@ -122,9 +122,9 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-
+    # block = Bottleneck, layers = [3, 4, 6, 3]], kwargs['groups'] = 32, kwargs['width_per_group'] = 4
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
-                 groups=1, width_per_group=64, replace_stride_with_dilation=None,
+                 groups=1, width_per_group=64, replace_stride_with_dilation=None, 
                  norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
@@ -140,21 +140,21 @@ class ResNet(nn.Module):
         if len(replace_stride_with_dilation) != 3:
             raise ValueError("replace_stride_with_dilation should be None "
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
-        self.groups = groups
-        self.base_width = width_per_group
+        self.groups = groups #32
+        self.base_width = width_per_group # 4
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+        self.layer1 = self._make_layer(block, 64, layers[0]) # block = Bottleneck, layers[0] = 3
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, # 
                                        dilate=replace_stride_with_dilation[0])
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
                                        dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1)) # H x Wを1つの
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
@@ -174,7 +174,7 @@ class ResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilate=False):
+    def _make_layer(self, block, planes, blocks, stride=1, dilate=False): # block = Bottleneck, layers[0] = 3
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
@@ -188,8 +188,9 @@ class ResNet(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
-                            self.base_width, previous_dilation, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups,  #block(64, 64, 1, downsample, 32,
+                            self.base_width, previous_dilation, norm_layer))         #       4, 1, nn.BatchNorm2d)
+        # out =[H/4 * W/4 * 256]
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups=self.groups,
@@ -205,21 +206,22 @@ class ResNet(nn.Module):
         x = self.relu(x)
         x = self.maxpool(x)
 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
+        x = self.layer1(x) # 64   channel -> 256  channel
+        x = self.layer2(x) # 256  channel -> 512  channel
+        x = self.layer3(x) # 512  channel -> 1024 channel
+        x = self.layer4(x) # 1024 channel -> 2048 channel
 
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
+        x = self.avgpool(x) # 各チャネルに対してaverage poolingを行い、チャネル方向に2048次元の特徴ベクトルとする
+        x = torch.flatten(x, 1) # 1 x 1 x 2048　-> 2048　に平滑化
+        x = self.fc(x)          # 2048 -> 1000　にするfully connected Net (1000というのはImage Netのクラス数)
 
         return x
 
     def forward(self, x):
         return self._forward_impl(x)
 
-
+# _resnet('resnext50_32x4d', Bottleneck, [3, 4, 6, 3],
+#                   pretrained, progress, **kwargs)
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     model = ResNet(block, layers, **kwargs)
     if pretrained:
